@@ -1,5 +1,5 @@
 import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
@@ -39,13 +39,7 @@ class DatabaseHelper {
   Future<int> insertStudent(String name, String course) async {
     final db = await database;
 
-    return await db.insert(
-      'students',
-      {
-        'name': name,
-        'course': course,
-      },
-    );
+    return await db.insert('students', {'name': name, 'course': course});
   }
 
   // READ
@@ -56,19 +50,12 @@ class DatabaseHelper {
   }
 
   // UPDATE
-  Future<int> updateStudent(
-    int id,
-    String name,
-    String course,
-  ) async {
+  Future<int> updateStudent(int id, String name, String course) async {
     final db = await database;
 
     return await db.update(
       'students',
-      {
-        'name': name,
-        'course': course,
-      },
+      {'name': name, 'course': course},
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -78,10 +65,12 @@ class DatabaseHelper {
   Future<int> deleteStudent(int id) async {
     final db = await database;
 
-    return await db.delete(
-      'students',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.delete('students', where: 'id = ?', whereArgs: [id]);
   }
+}
+
+// Initialize SQLite for Windows/Desktop.
+void initializeSQLite() {
+  sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
 }

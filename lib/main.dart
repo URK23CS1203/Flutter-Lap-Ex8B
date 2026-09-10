@@ -1,22 +1,21 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'database_helper.dart';
+import 'database_helper_platform.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // SQLite initialization for Windows
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
+  // SQLite is used only on Windows/Desktop.
+  if (!kIsWeb) {
+    initializeSQLite();
+  }
 
-  // Firebase initialization
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // Firebase is used on all platforms.
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   runApp(const MyApp());
 }
@@ -29,9 +28,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'SQLite + Firebase Student App',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
+      theme: ThemeData(primarySwatch: Colors.blue),
       home: const StudentPage(),
     );
   }
@@ -58,7 +55,12 @@ class _StudentPageState extends State<StudentPage> {
   void initState() {
     super.initState();
 
-    loadStudents();
+    // SQLite only on Windows/Desktop.
+    if (!kIsWeb) {
+      loadStudents();
+    }
+
+    // Firebase on all platforms.
     loadFirebaseStudents();
   }
 
@@ -67,13 +69,22 @@ class _StudentPageState extends State<StudentPage> {
   // ============================================================
 
   Future<void> loadStudents() async {
-    final data = await DatabaseHelper.instance.getStudents();
+    if (kIsWeb) return;
 
-    if (!mounted) return;
+    try {
+      final data = await DatabaseHelper.instance.getStudents();
 
-    setState(() {
-      students = data;
-    });
+      if (!mounted) return;
+
+      setState(() {
+        students = data;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('SQLite read error: $e')));
+    }
   }
 
   // ============================================================
@@ -104,11 +115,8 @@ class _StudentPageState extends State<StudentPage> {
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Firebase read error: $e'),
-        ),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Firebase read error: $e')));
     }
   }
 
@@ -122,53 +130,50 @@ class _StudentPageState extends State<StudentPage> {
 
     if (name.isEmpty || course.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter student name and course'),
-        ),
+        const SnackBar(content: Text('Please enter student name and course')),
       );
       return;
     }
 
     try {
-      // Insert into SQLite
-      await DatabaseHelper.instance.insertStudent(
-        name,
-        course,
-      );
+      // SQLite only on Windows/Desktop.
+      if (!kIsWeb) {
+        await DatabaseHelper.instance.insertStudent(name, course);
+      }
 
-      // Insert into Firebase Firestore
-      await FirebaseFirestore.instance
-          .collection('students')
-          .add({
+      // Firebase on all platforms.
+      await FirebaseFirestore.instance.collection('students').add({
         'name': name,
         'course': course,
       });
 
-      // Clear fields
       nameController.clear();
       courseController.clear();
 
-      // Refresh both lists
-      await loadStudents();
+      // Refresh SQLite only on Windows/Desktop.
+      if (!kIsWeb) {
+        await loadStudents();
+      }
+
+      // Refresh Firebase on all platforms.
       await loadFirebaseStudents();
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Student added to SQLite and Firebase successfully',
+            kIsWeb
+                ? 'Student added to Firebase successfully'
+                : 'Student added to SQLite and Firebase successfully',
           ),
         ),
       );
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-        ),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -177,6 +182,8 @@ class _StudentPageState extends State<StudentPage> {
   // ============================================================
 
   Future<void> editStudent(Map<String, dynamic> student) async {
+    if (kIsWeb) return;
+
     nameController.text = student['name'];
     courseController.text = student['course'];
 
@@ -190,16 +197,12 @@ class _StudentPageState extends State<StudentPage> {
             children: [
               TextField(
                 controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                ),
+                decoration: const InputDecoration(labelText: 'Name'),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: courseController,
-                decoration: const InputDecoration(
-                  labelText: 'Course',
-                ),
+                decoration: const InputDecoration(labelText: 'Course'),
               ),
             ],
           ),
@@ -241,7 +244,10 @@ class _StudentPageState extends State<StudentPage> {
   // ============================================================
 
   Future<void> deleteStudent(int id) async {
+    if (kIsWeb) return;
+
     await DatabaseHelper.instance.deleteStudent(id);
+
     await loadStudents();
   }
 
@@ -259,10 +265,7 @@ class _StudentPageState extends State<StudentPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('SQLite + Firebase Student App'),
-      ),
-
+      appBar: AppBar(title: const Text('SQLite + Firebase Student App')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -301,36 +304,27 @@ class _StudentPageState extends State<StudentPage> {
 
             // ==================================================
             // SQLITE SECTION
+            // Hidden on Web
             // ==================================================
-
-            const Text(
-              'SQLite - Local Storage',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+            if (!kIsWeb) ...[
+              const Text(
+                'SQLite - Local Storage',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
-            ),
 
-            const SizedBox(height: 10),
+              const SizedBox(height: 10),
 
-            if (students.isEmpty)
-              const Text('No SQLite students found.')
-            else
-              ...students.map(
-                (student) {
+              if (students.isEmpty)
+                const Text('No SQLite students found.')
+              else
+                ...students.map((student) {
                   return Card(
                     child: ListTile(
                       leading: CircleAvatar(
-                        child: Text(
-                          student['id'].toString(),
-                        ),
+                        child: Text(student['id'].toString()),
                       ),
-                      title: Text(
-                        student['name'],
-                      ),
-                      subtitle: Text(
-                        student['course'],
-                      ),
+                      title: Text(student['name']),
+                      subtitle: Text(student['course']),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -350,25 +344,21 @@ class _StudentPageState extends State<StudentPage> {
                       ),
                     ),
                   );
-                },
-              ),
+                }),
 
-            const SizedBox(height: 20),
+              const SizedBox(height: 20),
 
-            const Divider(),
+              const Divider(),
 
-            const SizedBox(height: 20),
+              const SizedBox(height: 20),
+            ],
 
             // ==================================================
             // FIREBASE SECTION
             // ==================================================
-
             const Text(
               'Firebase - Cloud Storage',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
 
             const SizedBox(height: 10),
@@ -376,23 +366,15 @@ class _StudentPageState extends State<StudentPage> {
             if (firebaseStudents.isEmpty)
               const Text('No Firebase students found.')
             else
-              ...firebaseStudents.map(
-                (student) {
-                  return Card(
-                    child: ListTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.cloud),
-                      ),
-                      title: Text(
-                        student['name'],
-                      ),
-                      subtitle: Text(
-                        student['course'],
-                      ),
-                    ),
-                  );
-                },
-              ),
+              ...firebaseStudents.map((student) {
+                return Card(
+                  child: ListTile(
+                    leading: const CircleAvatar(child: Icon(Icons.cloud)),
+                    title: Text(student['name']),
+                    subtitle: Text(student['course']),
+                  ),
+                );
+              }),
 
             const SizedBox(height: 10),
 
